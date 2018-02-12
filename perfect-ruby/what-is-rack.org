@@ -1,0 +1,224 @@
+#+TITLE: Rack
+#+OPTIONS: ^:{}
+
+* Rackとは
+WEBrickやThin、Unicornと言ったWebアプリケーションサーバとRuby on RailsなどのWebアプリケーションフレームワークのインターフェースとなるライブラリ。
+あるWebアプリケーションフレームワークはWEBrickでは動かせるけど、Thinでじゃ動かないといった問題を解決すべく、
+WebアプリケーションサーバとWebアプリケーションフレームワークの間で共通のインタフェースを決めたもの。（疎結合を保つことができる）
+
+* Rackのインストール
+** Gemfileの生成
+bundle init
+
+** rackをgemfileに追加
+gem "rack", "~> 2.0"
+
+** bundle install
+bundle install
+
+** rubyのバージョンが低くてerrorになった場合
+rack (~> 2.0) was resolved to 2.0.4, which depends on
+  ruby (>= 2.2.2)
+rbenv versions
+  2.2.3
+  2.3.0
+  2.5.0-dev
+rbenv local 2.3.0
+bundle install
+
+** rackupコマンドでインストールされたRackのバージョンを確認
+bundle exec rackup -v
+Rack 1.3 (Release: 2.0.4)
+
+* 最小構成のRackアプリケーション
+** RackでHello!
+・callメソッドを持つオブジェクトであること
+・callメソッドは引数で環境変数(Hashを受け取る)
+・callメソッドの戻り値は下記三つの配列であること
+　- ステータスコード
+　- HTTPヘッダ
+　- HTTPメッセージボディ
+
+#+BEGIN_SRC ruby
+require 'rack'
+
+class RackApplication
+  def call(env)
+    [200, {'content-Type' => 'text/plain'}, ['Hello!']]
+  end
+end
+
+run RackApplication.new
+#+END_SRC
+
+rackupコマンドでWebアプリケーションを起動
+bundle exec rackup config.ru
+[2018-02-12 17:32:14] INFO  WEBrick 1.3.1
+[2018-02-12 17:32:14] INFO  ruby 2.3.0 (2015-12-25) [x86_64-darwin16]
+[2018-02-12 17:32:14] INFO  WEBrick::HTTPServer#start: pid=50460 port=9292
+
+ブラウザで下記のようにアクセスするとHello!と表示される
+localhost:9292
+
+または、curlコマンドでHTTPアクセスする
+curl -i http://localhost:9292
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Transfer-Encoding: chunked
+Server: WEBrick/1.3.1 (Ruby/2.3.0/2015-12-25)
+Date: Mon, 12 Feb 2018 08:35:10 GMT
+Connection: Keep-Alive
+
+Hello!
+
+** envの中身を確認
+#+BEGIN_SRC ruby
+require 'rack'
+require 'pp'
+
+class RackApplication
+  def call(env)
+    pp env
+    [200, {'content-Type' => 'text/plain'}, ['Hello!']]
+  end
+end
+
+run RackApplication.new
+#+END_SRC
+{"GATEWAY_INTERFACE"=>"CGI/1.1",
+ "PATH_INFO"=>"/",
+ "QUERY_STRING"=>"",
+ "REMOTE_ADDR"=>"::1",
+ "REMOTE_HOST"=>"::1",
+ "REQUEST_METHOD"=>"GET",
+ "REQUEST_URI"=>"http://localhost:9292/",
+ "SCRIPT_NAME"=>"",
+ "SERVER_NAME"=>"localhost",
+ "SERVER_PORT"=>"9292",
+ "SERVER_PROTOCOL"=>"HTTP/1.1",
+ "SERVER_SOFTWARE"=>"WEBrick/1.3.1 (Ruby/2.3.0/2015-12-25)",
+ "HTTP_HOST"=>"localhost:9292",
+ "HTTP_USER_AGENT"=>"curl/7.54.0",
+ "HTTP_ACCEPT"=>"*/*",
+ "rack.version"=>[1, 3],
+ "rack.input"=>
+  #<Rack::Lint::InputWrapper:0x007f844d973208
+   @input=#<StringIO:0x007f844d979630>>,
+ "rack.errors"=>
+  #<Rack::Lint::ErrorWrapper:0x007f844d9731e0 @error=#<IO:<STDERR>>>,
+ "rack.multithread"=>true,
+ "rack.multiprocess"=>false,
+ "rack.run_once"=>false,
+ "rack.url_scheme"=>"http",
+ "rack.hijack?"=>true,
+ "rack.hijack"=>
+  #<Proc:0x007f844d973500@/Users/daoki/.rbenv/versions/2.3.0/lib/ruby/gems/2.3.0/gems/rack-2.0.4/lib/rack/lint.rb:525>,
+ "rack.hijack_io"=>nil,
+ "HTTP_VERSION"=>"HTTP/1.1",
+ "REQUEST_PATH"=>"/",
+ "rack.tempfiles"=>[]}
+* Rackのリクエストクラスとレスポンスクラス
+リクエスト情報の入ったenvの値や、レスポンスの配列を扱いやすくするための
+Rack::RequestやRack::Responseというラッパークラスが用意されている。
+
+#+BEGIN_SRC ruby
+require 'rack'
+
+class RackApplication
+  def call(env)
+    request = Rack::Request.new(env)
+
+    response = if request.path_info == '/'
+                 body = "#{request.request_method}: Hello! #{request.params['name']}!"
+                 Rack::Response.new(body, 200, {'Content-Type' => 'text/plain'})
+               else
+                 Rack::Response.new('Not Found', 404, {'Content-Type' => 'text/plain'})
+               end
+
+    # callメソッドの戻り値として扱えるインターフェースへ変換
+    response.finish
+  end
+end
+
+run RackApplication.new
+#+END_SRC
+
+curl http://localhost:9292/\?name=Ruby
+GET: Hello! Ruby!
+curl http://localhost:9292/ -d "name=Ruby"
+POST: Hello! Ruby!
+curl http://localhost:9292/foo\?name=Ruby
+Not Found
+
+* Rackのミドルウェア機構
+Basic認証とステータスコードが400/500系のエラー時のエラー画面の表示をするミドルウェア。
+|-------------------+------------------------------------------------------------------------------|
+| ミドルウェア      | 用途                                                                         |
+|-------------------+------------------------------------------------------------------------------|
+| Rack::Auth::Basic | Basic認証を扱う                                                              |
+| Rack::ShowStatus  | 例外発生時やステータスコードが400・500系の場合に詳細なエラーを画面に表示する |
+|-------------------+------------------------------------------------------------------------------|
+
+#+BEGIN_SRC ruby
+require 'rack'
+
+class RackApplication
+  def call(env)
+    [200, {'content-Type' => 'text/plain'}, ['Hello!']]
+  end
+end
+
+use Rack::ShowStatus
+use Rack::Auth::Basic do |username, password|
+  username == password
+end
+
+run RackApplication.new
+#+END_SRC
+
+* Rackのミドルウェアを作成する
+Rackミドルウェアのインターフェース
+- コンストラクタでRackミドルウェア、またはRackアプリケーションのインスタンスが渡される
+- callメソッドを持つ（引数や戻り値はRackアプリケーションと同じ）
+＊ callメソッド中にコンストラクタで受け取ったインスタンスのcallメソッドを呼び出して、後続のミドルウェアやアプリケーションを実行する。
+　（callメソッドを呼ばない場合、後続の処理を実行せずアプリケーションの処理を中断するということになる。）
+#+BEGIN_SRC ruby
+require 'rack'
+
+class URLFilter
+  def initialize(app)
+    @app = app
+  end
+
+  def call(env)
+    if env['PATH_INFO'] == '/admin'
+      [
+        404,
+        {'Content-Type' => 'text/plain'},
+        ["Not Found.(PATH=#{env['PATH_INFO']})"]
+      ]
+    else
+      @app.call(env)
+    end
+  end
+end
+
+class RackApplication
+  def call(env)
+    [
+      200,
+      {'content-Type' => 'text/plain'},
+      ["RackApplication(PATH=#{env['PATH_INFO']})"]
+    ]
+  end
+end
+
+# useメソッドで登録した順に実行されていく
+# URLFilter#call -> Rack::Auth::Basic#call -> RackApplication#call
+use URLFilter
+use Rack::Auth::Basic do |username, password|
+  username == password
+end
+
+run RackApplication.new
+#+END_SRC
