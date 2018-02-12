@@ -51,3 +51,24 @@ localhost:9292
 確認（curlコマンド）
 
 curl http://localhost:9292/
+
+
+
+## tcp-socket
+### socket_serverのみ起動し、telnetで動作確認
+cd tcp-socket
+
+chmod 755 socket_server.rb
+
+./socket_server.rb
+
+別ターミナルを起動し、
+
+telnet localhost 20000
+
+### socket_clientも起動し、動作確認
+chmod 755 socket_client.rb
+
+./socket_server.rb
+
+./socket_client.rb
